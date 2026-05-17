@@ -1,33 +1,19 @@
 # AI Trading Copilot
 
-AI Trading Copilot is a Next.js + TypeScript application for strategy review, backtest explanation, trade risk analysis, and market context visualization. It is designed as a production-style demo for AI-native trading workflows: paste or upload a strategy, ask the copilot to explain the backtest logic, review risk controls, and inspect market context through a TradingView chart panel.
+AI trading copilot built with Next.js, TypeScript, Vercel AI SDK, PostgreSQL, and TradingView-style market analysis.
 
-## Why this project exists
+## Live Demo
 
-This repo demonstrates the exact engineering surface area required for modern AI trading products:
+Live demo placeholder: deploy to Vercel and replace this line with the production URL.
 
-- Full-stack product development with Next.js, TypeScript, Tailwind, and shadcn-style components
-- LLM-powered workflows using Vercel AI SDK and OpenAI
-- PostgreSQL persistence with Drizzle ORM
-- Strategy analysis, backtest explanation, and trade risk review
-- TradingView chart integration for market context
-- Clear separation between UI, AI prompts, trading analysis logic, and database schema
+## What It Does
 
-## Core features
+- AI backtesting assistant for reviewing strategy logic, assumptions, and likely failure modes
+- AI risk analysis for leverage, stop-loss coverage, drawdown exposure, slippage, and liquidity risks
+- TradingView chart UI for live market context beside the strategy review workflow
+- PostgreSQL + Drizzle persistence for strategies, analysis records, and future user workspaces
 
-### 1. Strategy upload / paste
-Paste a Python, Pine Script, Freqtrade, Hummingbot, or custom strategy into the UI. The app stores strategy metadata and sends the strategy text to the AI analysis pipeline.
-
-### 2. AI backtest explanation
-The copilot explains signal generation, assumptions, entry/exit logic, position sizing, backtest limitations, and likely failure modes.
-
-### 3. Trade risk analysis
-The app highlights risk issues such as missing stop-loss logic, overfitting risk, excessive leverage, poor liquidity assumptions, execution slippage, and missing drawdown controls.
-
-### 4. Market data / TradingView chart UI
-A TradingView chart panel gives immediate market context while reviewing strategy logic.
-
-## Tech stack
+## Tech Stack
 
 - Next.js App Router
 - TypeScript
@@ -35,8 +21,32 @@ A TradingView chart panel gives immediate market context while reviewing strateg
 - OpenAI API
 - PostgreSQL
 - Drizzle ORM
-- TailwindCSS
-- shadcn-style UI primitives
+- Tailwind CSS
+- TradingView widget embed
+
+## Feature Overview
+
+### AI Backtesting Assistant
+
+Paste a Python, Pine Script, Freqtrade, or Hummingbot strategy into the app and get a structured explanation of signal generation, entries, exits, assumptions, and backtest weaknesses.
+
+### Risk Analysis
+
+The copilot flags missing stop-loss logic, unrealistic fills, overfitting risk, leverage misuse, weak drawdown controls, and poor liquidity assumptions.
+
+### TradingView Chart UI
+
+The interface keeps a TradingView chart panel visible while the strategy is being reviewed so users can inspect market structure and symbol context in the same screen.
+
+### PostgreSQL / Drizzle
+
+The project is wired for PostgreSQL and Drizzle so analysis results and strategy records can move from demo mode into persistent product workflows.
+
+## Screenshots
+
+Screenshot placeholder 1: homepage with strategy input + TradingView chart UI
+
+Screenshot placeholder 2: AI backtesting assistant and risk analysis result panel
 
 ## Architecture
 
@@ -50,11 +60,11 @@ flowchart TD
   API2 --> AI
   API1 --> DB[(PostgreSQL + Drizzle)]
   DB --> UI
-  AI --> RISK[Risk Analysis + Backtest Explanation]
+  AI --> RISK[Backtest Explanation + Risk Analysis]
   RISK --> UI
 ```
 
-## Local setup
+## Local Setup
 
 ```bash
 pnpm install
@@ -62,7 +72,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-## Environment variables
+## Environment Variables
 
 ```bash
 OPENAI_API_KEY=your_openai_key
@@ -78,14 +88,12 @@ pnpm db:migrate
 
 ## Roadmap
 
-- Strategy file upload
-- Freqtrade backtest import parser
-- Hummingbot config analyzer
-- Trade journal upload and PnL attribution
-- RAG over strategy docs and exchange docs
-- Tool calling for market data providers
-- User auth and saved strategy workspaces
+- Full auth and saved workspaces
+- Vercel deployment with live demo URL
+- Strategy file upload and parsing
+- Rich backtest import support
+- More advanced market data and research tools
 
 ## Disclaimer
 
-This project is for engineering demonstration and research only. It is not financial advice and does not execute trades.
+This repository is for engineering demonstration and research use. It is not financial advice and does not execute live trades.
