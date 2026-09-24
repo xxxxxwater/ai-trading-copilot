@@ -158,8 +158,24 @@ export default function Page() {
   }, [interval, request, symbol]);
 
   useEffect(() => {
-    void refreshMarket();
-  }, [refreshMarket]);
+    let cancelled = false;
+
+    async function loadInitialMarket() {
+      try {
+        const data = await request<MarketSnapshot>(
+          `/api/market-snapshot?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`,
+        );
+        if (!cancelled) setMarket(data);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Market request failed.');
+      }
+    }
+
+    void loadInitialMarket();
+    return () => {
+      cancelled = true;
+    };
+  }, [interval, request, symbol]);
 
   async function analyze() {
     setStatus('analyzing');
