@@ -171,9 +171,10 @@ Dependencies are pinned to exact versions in `package.json` instead of `latest` 
 
 ## Local setup
 
-Node.js 22+ is required.
+Node.js 22+ and npm 11.6+ are required. CI pins npm 11.14.0 to avoid the npm 10.9.x Arborist peer-resolution crash seen on current Node 22 GitHub runners.
 
 ```bash
+npm --version
 npm install
 cp .env.example .env.local
 npm run dev
