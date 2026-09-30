@@ -36,10 +36,93 @@ describe('runBacktest', () => {
     ];
     const result = runBacktest(parseStrategy(source), candlesFrom(closes), { initialCapital: 10_000 });
 
+    expect(result.engineVersion).toBe('0.5.0');
     expect(result.mode).toBe('historical-simulation');
     expect(result.metrics.tradeCount).toBeGreaterThan(0);
     expect(result.equityCurve).toHaveLength(closes.length);
     expect(result.metrics.totalFees).toBeGreaterThan(0);
     expect(Number.isFinite(result.metrics.maxDrawdownPct)).toBe(true);
+  });
+
+  it('evaluates a close signal and fills at the next candle open', () => {
+    const source = `
+      rsi_period = 3
+      max_position_size = 0.5
+      if rsi < 60:
+          enter_long()
+      elif rsi > 90:
+          exit_long()
+    `;
+    const candles = candlesFrom(Array(32).fill(100));
+    candles[4].open = 110;
+    candles[4].high = 112;
+    candles[4].low = 99;
+    candles[4].close = 100;
+
+    const result = runBacktest(parseStrategy(source), candles, {
+      initialCapital: 10_000,
+      feeBps: 0,
+      slippageBps: 0,
+    });
+
+    expect(result.trades[0]?.entryTime).toBe(candles[4].openTime);
+    expect(result.trades[0]?.entryPrice).toBe(110);
+  });
+
+  it('treats a flat RSI series as neutral instead of overbought', () => {
+    const source = `
+      rsi_period = 3
+      max_position_size = 0.5
+      if rsi < 60:
+          enter_long()
+      elif rsi > 90:
+          exit_long()
+    `;
+
+    const result = runBacktest(parseStrategy(source), candlesFrom(Array(32).fill(100)), {
+      initialCapital: 10_000,
+      feeBps: 0,
+      slippageBps: 0,
+    });
+
+    expect(result.metrics.tradeCount).toBe(1);
+    expect(result.trades[0]?.exitReason).toBe('end-of-data');
+  });
+
+  it('enforces an extracted stop-loss using candle OHLC', () => {
+    const source = `
+      rsi_period = 3
+      stop_loss = -0.05
+      max_position_size = 0.5
+      if rsi < 60:
+          enter_long()
+      elif rsi > 90:
+          exit_long()
+    `;
+    const candles = candlesFrom(Array(32).fill(100));
+    candles[6].low = 90;
+
+    const result = runBacktest(parseStrategy(source), candles, {
+      initialCapital: 10_000,
+      feeBps: 0,
+      slippageBps: 0,
+    });
+
+    expect(result.trades[0]?.exitReason).toBe('stop-loss');
+    expect(result.trades[0]?.exitPrice).toBe(95);
+  });
+
+  it('fails closed on malformed candle ranges', () => {
+    const source = `
+      rsi_period = 3
+      if rsi < 30:
+          enter_long()
+      elif rsi > 70:
+          exit_long()
+    `;
+    const candles = candlesFrom(Array(32).fill(100));
+    candles[10].high = 90;
+
+    expect(() => runBacktest(parseStrategy(source), candles)).toThrow(/OHLC range is inconsistent/);
   });
 });

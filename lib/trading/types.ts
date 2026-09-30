@@ -76,7 +76,13 @@ export type BacktestConfig = {
   longEntryRsi: number;
   longExitRsi: number;
   positionFraction: number;
+  stopLossPct?: number;
+  takeProfitPct?: number;
+  executionTiming: 'signal-close-next-open';
+  intrabarCollision: 'stop-first';
 };
+
+export type BacktestExitReason = 'signal' | 'stop-loss' | 'take-profit' | 'end-of-data';
 
 export type BacktestTrade = {
   entryTime: number;
@@ -87,6 +93,7 @@ export type BacktestTrade = {
   pnl: number;
   returnPct: number;
   fees: number;
+  exitReason: BacktestExitReason;
 };
 
 export type EquityPoint = {
@@ -108,7 +115,7 @@ export type BacktestMetrics = {
 };
 
 export type BacktestResult = {
-  engineVersion: '0.4.0';
+  engineVersion: '0.5.0';
   mode: 'historical-simulation';
   strategyHash: string;
   assumptions: BacktestConfig;
