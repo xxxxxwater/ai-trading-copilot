@@ -5,6 +5,9 @@ import { runBacktest } from '@/lib/trading/backtest';
 import { parseStrategy } from '@/lib/trading/parser';
 import { analyzeRisk } from '@/lib/trading/risk';
 
+const marketSymbol = z.string().trim().min(5).max(20).default('BTCUSDT');
+const marketInterval = z.string().trim().min(2).max(4).default('1h');
+
 export const copilotTools = {
   parse_strategy: tool({
     description: 'Parse strategy source into a deterministic Strategy IR with extracted language, indicators, rules, risk controls, and execution assumptions.',
@@ -30,19 +33,19 @@ export const copilotTools = {
   market_snapshot: tool({
     description: 'Read a current Binance public spot market snapshot. This tool is read-only and does not use account credentials.',
     inputSchema: z.object({
-      symbol: z.string().default('BTCUSDT'),
-      interval: z.string().default('1h'),
+      symbol: marketSymbol,
+      interval: marketInterval,
     }),
     execute: async ({ symbol, interval }) => getMarketSnapshot(symbol, interval),
   }),
 
   run_backtest: tool({
-    description: 'Run the built-in historical simulator for supported RSI threshold strategies using Binance public OHLCV. No orders are placed.',
+    description: 'Run the built-in historical simulator for supported RSI threshold strategies using closed Binance public OHLCV. No orders are placed.',
     inputSchema: z.object({
       strategy: z.string().min(1).max(100_000),
       name: z.string().min(1).max(120).optional(),
-      symbol: z.string().default('BTCUSDT'),
-      interval: z.string().default('1h'),
+      symbol: marketSymbol,
+      interval: marketInterval,
       limit: z.number().int().min(30).max(1_000).default(500),
       initialCapital: z.number().positive().max(100_000_000).default(10_000),
     }),

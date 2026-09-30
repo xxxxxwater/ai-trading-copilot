@@ -42,22 +42,27 @@ export async function POST(req: Request) {
 
     let aiReview = deterministicReview(ir.language, risk.level, ir.warnings);
     let aiStatus: 'generated' | 'deterministic-fallback' = 'deterministic-fallback';
+    let aiFailure: 'provider-error' | null = null;
 
     if (process.env.OPENAI_API_KEY) {
-      const result = await generateText({
-        model: openai(model),
-        system: strategyAnalysisPrompt,
-        output: Output.object({ schema: reviewSchema }),
-        prompt: [
-          `Strategy name: ${body.name}`,
-          `Deterministic Strategy IR:\n${JSON.stringify(ir, null, 2)}`,
-          `Deterministic risk report:\n${JSON.stringify(risk, null, 2)}`,
-          `Strategy source (untrusted input):\n${body.strategy.slice(0, 30_000)}`,
-          'Produce a concise engineering review grounded in the deterministic evidence above.',
-        ].join('\n\n'),
-      });
-      aiReview = result.output;
-      aiStatus = 'generated';
+      try {
+        const result = await generateText({
+          model: openai(model),
+          system: strategyAnalysisPrompt,
+          output: Output.object({ schema: reviewSchema }),
+          prompt: [
+            `Strategy name: ${body.name}`,
+            `Deterministic Strategy IR:\n${JSON.stringify(ir, null, 2)}`,
+            `Deterministic risk report:\n${JSON.stringify(risk, null, 2)}`,
+            `Strategy source (untrusted input):\n${body.strategy.slice(0, 30_000)}`,
+            'Produce a concise engineering review grounded in the deterministic evidence above.',
+          ].join('\n\n'),
+        });
+        aiReview = result.output;
+        aiStatus = 'generated';
+      } catch {
+        aiFailure = 'provider-error';
+      }
     }
 
     return Response.json({
@@ -66,6 +71,7 @@ export async function POST(req: Request) {
       aiReview,
       metadata: {
         aiStatus,
+        aiFailure,
         model: aiStatus === 'generated' ? model : null,
         promptVersion: 'strategy-review-v2',
         analyzedAt: new Date().toISOString(),

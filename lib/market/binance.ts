@@ -6,6 +6,18 @@ const allowedIntervals = new Set([
   '1d', '3d', '1w', '1M',
 ]);
 
+export type MarketDataErrorKind = 'timeout' | 'upstream' | 'invalid-response';
+
+export class MarketDataError extends Error {
+  constructor(
+    public readonly kind: MarketDataErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MarketDataError';
+  }
+}
+
 function baseUrl(): string {
   return (process.env.BINANCE_REST_URL ?? 'https://api.binance.com').replace(/\/$/, '');
 }
@@ -21,41 +33,102 @@ function normalizeInterval(interval: string): string {
   return interval;
 }
 
+function finiteNumber(value: unknown, field: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new MarketDataError('invalid-response', `Binance returned a non-finite ${field}.`);
+  }
+  return parsed;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
+
   try {
     const response = await fetch(url, {
       signal: controller.signal,
       cache: 'no-store',
-      headers: { 'user-agent': 'ai-trading-copilot/0.4' },
+      headers: { 'user-agent': 'ai-trading-copilot/0.5' },
     });
+
     if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`Binance request failed (${response.status}): ${detail.slice(0, 180)}`);
+      throw new MarketDataError('upstream', `Binance request failed with HTTP ${response.status}.`);
     }
-    return await response.json() as T;
+
+    try {
+      return await response.json() as T;
+    } catch {
+      throw new MarketDataError('invalid-response', 'Binance returned invalid JSON.');
+    }
+  } catch (error) {
+    if (error instanceof MarketDataError) throw error;
+    if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+      throw new MarketDataError('timeout', 'Binance request timed out.');
+    }
+    throw new MarketDataError('upstream', 'Unable to reach Binance public market data.');
   } finally {
     clearTimeout(timer);
   }
+}
+
+function parseKline(row: unknown, index: number): MarketCandle {
+  if (!Array.isArray(row) || row.length < 7) {
+    throw new MarketDataError('invalid-response', `Binance returned a malformed kline at index ${index}.`);
+  }
+
+  const candle: MarketCandle = {
+    openTime: finiteNumber(row[0], 'openTime'),
+    open: finiteNumber(row[1], 'open'),
+    high: finiteNumber(row[2], 'high'),
+    low: finiteNumber(row[3], 'low'),
+    close: finiteNumber(row[4], 'close'),
+    volume: finiteNumber(row[5], 'volume'),
+    closeTime: finiteNumber(row[6], 'closeTime'),
+  };
+
+  if (
+    candle.open <= 0
+    || candle.high <= 0
+    || candle.low <= 0
+    || candle.close <= 0
+    || candle.volume < 0
+    || candle.openTime >= candle.closeTime
+    || candle.high < Math.max(candle.open, candle.close, candle.low)
+    || candle.low > Math.min(candle.open, candle.close, candle.high)
+  ) {
+    throw new MarketDataError('invalid-response', `Binance returned an invalid kline at index ${index}.`);
+  }
+
+  return candle;
 }
 
 export async function getCandles(symbol: string, interval = '1h', limit = 500): Promise<MarketCandle[]> {
   const safeSymbol = normalizeSymbol(symbol);
   const safeInterval = normalizeInterval(interval);
   const safeLimit = Math.min(1_000, Math.max(30, Math.round(limit)));
-  const url = `${baseUrl()}/api/v3/klines?symbol=${encodeURIComponent(safeSymbol)}&interval=${encodeURIComponent(safeInterval)}&limit=${safeLimit}`;
-  const rows = await fetchJson<Array<[number, string, string, string, string, string, number, ...unknown[]]>>(url);
+  const fetchLimit = Math.min(1_000, safeLimit + 1);
+  const url = `${baseUrl()}/api/v3/klines?symbol=${encodeURIComponent(safeSymbol)}&interval=${encodeURIComponent(safeInterval)}&limit=${fetchLimit}`;
+  const rows = await fetchJson<unknown[]>(url);
 
-  return rows.map((row) => ({
-    openTime: Number(row[0]),
-    open: Number(row[1]),
-    high: Number(row[2]),
-    low: Number(row[3]),
-    close: Number(row[4]),
-    volume: Number(row[5]),
-    closeTime: Number(row[6]),
-  }));
+  if (!Array.isArray(rows)) {
+    throw new MarketDataError('invalid-response', 'Binance returned a non-array kline payload.');
+  }
+
+  const parsed = rows.map(parseKline);
+  for (let index = 1; index < parsed.length; index += 1) {
+    if (parsed[index].openTime <= parsed[index - 1].openTime) {
+      throw new MarketDataError('invalid-response', 'Binance returned duplicate or out-of-order klines.');
+    }
+  }
+
+  const now = Date.now();
+  const closed = parsed.filter((candle) => candle.closeTime <= now).slice(-safeLimit);
+  if (closed.length === 0) {
+    throw new MarketDataError('invalid-response', 'Binance returned no closed candles.');
+  }
+
+  return closed;
 }
 
 export type MarketSnapshot = {
@@ -77,16 +150,20 @@ export async function getMarketSnapshot(symbol = 'BTCUSDT', interval = '1h'): Pr
   const safeInterval = normalizeInterval(interval);
   const tickerUrl = `${baseUrl()}/api/v3/ticker/24hr?symbol=${encodeURIComponent(safeSymbol)}`;
   const [ticker, candles] = await Promise.all([
-    fetchJson<{
-      lastPrice: string;
-      priceChangePercent: string;
-      highPrice: string;
-      lowPrice: string;
-      quoteVolume: string;
-      closeTime: number;
-    }>(tickerUrl),
+    fetchJson<Record<string, unknown>>(tickerUrl),
     getCandles(safeSymbol, safeInterval, 50),
   ]);
+
+  const lastPrice = finiteNumber(ticker.lastPrice, 'lastPrice');
+  const priceChangePct24h = finiteNumber(ticker.priceChangePercent, 'priceChangePercent');
+  const high24h = finiteNumber(ticker.highPrice, 'highPrice');
+  const low24h = finiteNumber(ticker.lowPrice, 'lowPrice');
+  const quoteVolume24h = finiteNumber(ticker.quoteVolume, 'quoteVolume');
+  const closeTime = finiteNumber(ticker.closeTime, 'closeTime');
+
+  if (lastPrice <= 0 || high24h <= 0 || low24h <= 0 || quoteVolume24h < 0 || high24h < low24h) {
+    throw new MarketDataError('invalid-response', 'Binance returned an invalid 24h ticker payload.');
+  }
 
   const returns: number[] = [];
   for (let i = 1; i < candles.length; i += 1) {
@@ -101,13 +178,13 @@ export async function getMarketSnapshot(symbol = 'BTCUSDT', interval = '1h'): Pr
     source: 'binance-spot-public-rest',
     symbol: safeSymbol,
     interval: safeInterval,
-    timestamp: new Date(ticker.closeTime).toISOString(),
-    freshnessMs: Math.max(0, Date.now() - ticker.closeTime),
-    lastPrice: Number(ticker.lastPrice),
-    priceChangePct24h: Number(ticker.priceChangePercent),
-    high24h: Number(ticker.highPrice),
-    low24h: Number(ticker.lowPrice),
-    quoteVolume24h: Number(ticker.quoteVolume),
+    timestamp: new Date(closeTime).toISOString(),
+    freshnessMs: Math.max(0, Date.now() - closeTime),
+    lastPrice,
+    priceChangePct24h,
+    high24h,
+    low24h,
+    quoteVolume24h,
     recentVolatilityPct: Math.sqrt(variance) * 100,
   };
 }

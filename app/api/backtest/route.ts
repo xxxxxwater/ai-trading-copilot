@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { getCandles } from '@/lib/market/binance';
+import { getCandles, MarketDataError } from '@/lib/market/binance';
 import { runBacktest } from '@/lib/trading/backtest';
 import { parseStrategy } from '@/lib/trading/parser';
 
@@ -30,11 +30,24 @@ export async function POST(req: Request) {
       symbol: body.symbol.toUpperCase().replace(/[\/_-]/g, ''),
       interval: body.interval,
       dataSource: 'binance-spot-public-rest',
+      requestedCandleCount: body.limit,
       candleCount: candles.length,
       datasetHash,
+      dataset: {
+        finality: 'closed-candles-only',
+        startTime: new Date(candles[0].openTime).toISOString(),
+        endTime: new Date(candles[candles.length - 1].closeTime).toISOString(),
+      },
       result,
     });
   } catch (error) {
+    if (error instanceof MarketDataError) {
+      return Response.json(
+        { error: error.message, upstream: 'binance' },
+        { status: error.kind === 'timeout' ? 504 : 502 },
+      );
+    }
+
     const message = error instanceof Error ? error.message : 'Unable to run backtest.';
     const status = message.includes('currently supports') ? 422 : 400;
     return Response.json({ error: message }, { status });
