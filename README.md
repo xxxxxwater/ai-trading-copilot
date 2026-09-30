@@ -9,8 +9,8 @@ The project has been upgraded from a prompt-only strategy reviewer into a resear
 - Parses Python, Freqtrade, Hummingbot, and Pine-like strategy source into a stable `StrategyIR`
 - Extracts symbols, timeframe, indicators, RSI thresholds, sizing, leverage, stop-loss, DCA, fees, and slippage when explicitly present
 - Runs deterministic risk checks for missing stops/exits, leverage, DCA exposure, look-ahead bias, martingale patterns, execution assumptions, and parser uncertainty
-- Runs a real historical simulation for supported long-only RSI threshold strategies using Binance public OHLCV
-- Models fixed fees and slippage and reports return, max drawdown, Sharpe, win rate, profit factor, trade count, and total fees
+- Runs a deterministic historical simulation for supported long-only RSI threshold strategies using closed Binance public OHLCV
+- Uses signal-at-close / next-open execution, applies extracted stop-loss/take-profit rules, models fixed fees/slippage, and reports return, max drawdown, Sharpe, win rate, profit factor, trade count, and total fees
 - Fetches read-only Binance public market snapshots with source and freshness metadata
 - Uses AI SDK structured output to explain deterministic evidence when `OPENAI_API_KEY` is configured
 - Exposes read-only agent tools for parsing, risk analysis, market context, and backtesting
@@ -47,7 +47,7 @@ flowchart TD
   RISK --> AI
 
   BT --> DATA[Binance Public OHLCV]
-  BT --> ENGINE[Backtest Engine v0.4]
+  BT --> ENGINE[Backtest Engine v0.5]
   MARKET --> DATA
 
   CHAT --> TOOLS[Read-only Copilot Tools]
@@ -56,8 +56,8 @@ flowchart TD
   TOOLS --> DATA
   TOOLS --> ENGINE
 
-  ANALYZE --> DB[(PostgreSQL / Drizzle model)]
-  BT --> DB
+  SCHEMA[(PostgreSQL / Drizzle schema
+  prepared for future persistence)]
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design boundaries and extension points.
@@ -87,12 +87,12 @@ sourceHash
 
 ## Backtest scope
 
-The built-in `v0.4.0` simulator intentionally supports a narrow, explicit contract:
+The built-in `v0.5.0` simulator intentionally supports a narrow, explicit contract:
 
 - long-only RSI threshold strategies
-- Binance public candles
-- candle-close execution
-- configurable fixed fee/slippage
+- closed Binance public candles only
+- signals evaluated at candle close with signal-driven fills at the next candle open
+- extracted stop-loss/take-profit handling plus configurable fixed fee/slippage
 - deterministic position allocation
 
 It does **not** silently claim support for unsupported strategy semantics. Queue position, order-book depth, partial fills, funding, borrow costs, liquidation, and venue-specific order behavior are future adapter responsibilities.
@@ -152,7 +152,7 @@ The Drizzle schema includes:
 - `backtest_runs`
 - `audit_events`
 
-The schema is designed to retain source hashes, prompt/model versions, deterministic outputs, dataset hashes, assumptions, metrics, trades, and tool traces.
+The schema is designed to retain source hashes, prompt/model versions, deterministic outputs, dataset hashes, assumptions, metrics, trades, and tool traces. **The current API routes do not yet write analysis/backtest runs to PostgreSQL**; the schema is a prepared persistence contract, not an active runtime guarantee.
 
 ## Tech stack
 
@@ -201,6 +201,8 @@ npm run build
 
 CI runs the same quality gates on pushes to `main` and pull requests.
 
+A lightweight `GET /api/health` endpoint reports process liveness and configured capabilities without probing or mutating external systems. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for deployment boundaries and failure semantics.
+
 ## Database
 
 ```bash
@@ -215,7 +217,7 @@ Review generated migrations before applying them to an existing database.
 1. Language-specific AST adapters for Python/Freqtrade and Pine
 2. Event-driven simulator with limit orders, partial fills, funding, borrow, and liquidation
 3. Walk-forward, Monte Carlo, parameter-sensitivity, and regime segmentation tools
-4. Workspace authentication/RBAC and persistent run history
+4. Workspace authentication/RBAC, rate limiting, and persistent run history before public multi-user deployment
 5. Provider interface for Hyperliquid/IBKR/internal market data
 6. Read-only portfolio/runtime adapters before any proposal-to-execution workflow
 7. Agent eval suite covering look-ahead bias, overfitting, sizing, leverage, and execution-risk detection

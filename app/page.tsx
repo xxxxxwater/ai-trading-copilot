@@ -238,7 +238,7 @@ export default function Page() {
         <div className="flex flex-wrap gap-2 text-xs text-slate-400">
           <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">read-only market tools</span>
           <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Strategy IR v1</span>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Backtest v0.4</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Backtest v0.5</span>
         </div>
       </header>
 
