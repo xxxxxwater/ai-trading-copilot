@@ -49,11 +49,18 @@ function normalizePercent(value: number | undefined): number | undefined {
   return absolute <= 1 ? absolute * 100 : absolute;
 }
 
+// Indicator names must stand alone as identifiers or identifier parts
+// (`rsi`, `rsi_period`, `ta.EMA(`, `sma200`), not appear inside unrelated
+// words such as `version`/`INTERFACE_VERSION` (rsi), `schema` (ema) or
+// `matrix` (atr). Letters are the boundary; digits and `_` are allowed.
+function mentionsToken(source: string, token: string): boolean {
+  return new RegExp(`(?<![a-z])${token}(?![a-z])`, 'i').test(source);
+}
+
 function collectIndicators(source: string): IndicatorSpec[] {
-  const lower = source.toLowerCase();
   const indicators: IndicatorSpec[] = [];
 
-  if (lower.includes('rsi')) {
+  if (mentionsToken(source, 'rsi')) {
     const period = extractNumeric(source, [
       /rsi[_\s-]?period\s*[:=]\s*(\d+(?:\.\d+)?)/i,
       /rsi\s*\([^,]+,\s*(\d+(?:\.\d+)?)/i,
@@ -64,7 +71,7 @@ function collectIndicators(source: string): IndicatorSpec[] {
   }
 
   for (const name of ['EMA', 'SMA', 'MACD', 'ATR', 'VWAP', 'BOLLINGER']) {
-    if (lower.includes(name.toLowerCase()) || (name === 'BOLLINGER' && lower.includes('bbands'))) {
+    if (mentionsToken(source, name) || (name === 'BOLLINGER' && mentionsToken(source, 'bbands'))) {
       indicators.push({ name, params: {}, evidence: `Detected ${name} usage in strategy source.` });
     }
   }
@@ -76,7 +83,9 @@ function collectRules(source: string): { entries: StrategyRule[]; exits: Strateg
   const entries: StrategyRule[] = [];
   const exits: StrategyRule[] = [];
 
-  const rsiLongEntry = source.match(/rsi[^\n]{0,80}?<\s*(\d+(?:\.\d+)?)/i);
+  // The comparison must directly follow the RSI operand: no other `<`/`>` in
+  // between, so `rsi < 30 and volume > 0` does not yield an `RSI > 0` exit.
+  const rsiLongEntry = source.match(/(?<![a-z])rsi(?![a-z])[^\n<>]{0,80}?<\s*(\d+(?:\.\d+)?)/i);
   if (rsiLongEntry) {
     entries.push({
       side: 'entry',
@@ -86,7 +95,7 @@ function collectRules(source: string): { entries: StrategyRule[]; exits: Strateg
     });
   }
 
-  const rsiLongExit = source.match(/rsi[^\n]{0,80}?>\s*(\d+(?:\.\d+)?)/i);
+  const rsiLongExit = source.match(/(?<![a-z])rsi(?![a-z])[^\n<>]{0,80}?>\s*(\d+(?:\.\d+)?)/i);
   if (rsiLongExit) {
     exits.push({
       side: 'exit',
