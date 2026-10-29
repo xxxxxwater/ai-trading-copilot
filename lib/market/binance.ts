@@ -59,6 +59,8 @@ async function fetchJson<T>(url: string): Promise<T> {
     try {
       return await response.json() as T;
     } catch {
+      // The timeout also covers the body: an abort mid-read is a timeout, not bad JSON.
+      if (controller.signal.aborted) throw new MarketDataError('timeout', 'Binance request timed out.');
       throw new MarketDataError('invalid-response', 'Binance returned invalid JSON.');
     }
   } catch (error) {
