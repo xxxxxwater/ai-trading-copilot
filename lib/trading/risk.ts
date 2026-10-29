@@ -13,12 +13,17 @@ export function analyzeRisk(ir: StrategyIR, source = ''): RiskReport {
   const findings: RiskFinding[] = [];
   const lower = source.toLowerCase();
 
-  if (ir.risk.stopLossPct === undefined) {
+  // A long stop at or beyond 100% can never trigger (prices stay positive);
+  // freqtrade uses `stoploss = -1` / `-0.99`-style values to disable the stop.
+  const hasEffectiveStop = ir.risk.stopLossPct !== undefined && ir.risk.stopLossPct < 100;
+
+  if (!hasEffectiveStop) {
     findings.push({
       code: 'STOP_COVERAGE_MISSING',
       severity: 'critical',
       title: 'No explicit stop-loss extracted',
       detail: 'The strategy IR has no explicit loss boundary. Add a deterministic stop or portfolio-level loss guard before considering live execution.',
+      evidence: ir.risk.stopLossPct === undefined ? undefined : `Extracted stop-loss of ${ir.risk.stopLossPct}% cannot trigger on a long position.`,
     });
   }
 
@@ -40,7 +45,7 @@ export function analyzeRisk(ir: StrategyIR, source = ''): RiskReport {
     });
   }
 
-  if ((ir.risk.maxLeverage ?? 1) > 1 && ir.risk.stopLossPct === undefined) {
+  if ((ir.risk.maxLeverage ?? 1) > 1 && !hasEffectiveStop) {
     findings.push({
       code: 'LEVERAGE_WITHOUT_STOP',
       severity: 'critical',

@@ -125,4 +125,22 @@ describe('runBacktest', () => {
 
     expect(() => runBacktest(parseStrategy(source), candles)).toThrow(/OHLC range is inconsistent/);
   });
+
+  it('runs a strategy whose stop is disabled with stoploss = -1 instead of rejecting it', () => {
+    const source = `
+      rsi_period = 3
+      stoploss = -1
+      if rsi < 60:
+          enter_long()
+      elif rsi > 90:
+          exit_long()
+    `;
+    const candles = candlesFrom(Array(32).fill(100));
+    candles[6].low = 1;
+
+    const result = runBacktest(parseStrategy(source), candles, { feeBps: 0, slippageBps: 0 });
+
+    expect(result.assumptions.stopLossPct).toBeUndefined();
+    expect(result.trades[0]?.exitReason).toBe('end-of-data');
+  });
 });
