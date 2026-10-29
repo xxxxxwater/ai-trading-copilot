@@ -1,5 +1,5 @@
 import { openai } from '@ai-sdk/openai';
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText, TypeValidationError, validateUIMessages } from 'ai';
 import { z } from 'zod';
 import { copilotPrompt } from '@/lib/ai/prompts';
 import { copilotTools } from '@/lib/ai/tools';
@@ -28,7 +28,14 @@ export async function POST(req: Request) {
     }
 
     const body = inputSchema.parse(JSON.parse(raw));
-    const messages = body.messages as UIMessage[];
+    // Validate message/part shapes and tool inputs before any provider work,
+    // so malformed history is a 400 rather than a TypeError (500).
+    const messages = await validateUIMessages({ messages: body.messages, tools: copilotTools });
+    // The server owns the system prompt; client-supplied system messages would
+    // otherwise be forwarded to the model alongside copilotPrompt.
+    if (messages.some((message) => message.role === 'system')) {
+      return Response.json({ error: 'Invalid chat request.' }, { status: 400 });
+    }
     const result = streamText({
       model: openai(process.env.AI_MODEL ?? 'gpt-5.4'),
       system: copilotPrompt,
@@ -41,7 +48,7 @@ export async function POST(req: Request) {
       onError: () => 'Copilot request failed.',
     });
   } catch (error) {
-    if (error instanceof z.ZodError || error instanceof SyntaxError) {
+    if (error instanceof z.ZodError || error instanceof SyntaxError || TypeValidationError.isInstance(error)) {
       return Response.json({ error: 'Invalid chat request.' }, { status: 400 });
     }
     return Response.json({ error: 'Unable to process chat request.' }, { status: 500 });
