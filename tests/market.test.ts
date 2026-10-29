@@ -48,4 +48,26 @@ describe('Binance market adapter', () => {
 
     await expect(getCandles('BTCUSDT', '1m', 30)).rejects.toBeInstanceOf(MarketDataError);
   });
+  it('reports a response body that stalls past the deadline as a timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('[['));
+            // Like undici, error the body stream when the request signal aborts.
+            init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+          },
+        });
+        return new Response(body, { status: 200 });
+      }));
+
+      const pending = getCandles('BTCUSDT', '1m', 30);
+      const assertion = expect(pending).rejects.toMatchObject({ name: 'MarketDataError', kind: 'timeout' });
+      await vi.advanceTimersByTimeAsync(8_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
