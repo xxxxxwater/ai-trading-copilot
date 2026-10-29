@@ -56,9 +56,10 @@ function collectIndicators(source: string): IndicatorSpec[] {
   if (lower.includes('rsi')) {
     const period = extractNumeric(source, [
       /rsi[_\s-]?period\s*[:=]\s*(\d+(?:\.\d+)?)/i,
-      /rsi\s*\([^,]+,\s*(\d+(?:\.\d+)?)/i,
-      /ta\.rsi\s*\([^,]+,\s*(\d+(?:\.\d+)?)/i,
-      /timeperiod\s*=\s*(\d+(?:\.\d+)?)/i,
+      // The period must come from the RSI call itself (second positional or a
+      // period keyword argument), never from another indicator's arguments:
+      // `ta.EMA(df, timeperiod=200)` or a later `ta.sma(close, 50)` line.
+      /rsi\s*\([^(),\n]*,\s*(?:(?:timeperiod|length|period|window)\s*=\s*)?(\d+(?:\.\d+)?)\s*[,)]/i,
     ]) ?? 14;
     indicators.push({ name: 'RSI', params: { period }, evidence: `Detected RSI usage (period ${period}).` });
   }
