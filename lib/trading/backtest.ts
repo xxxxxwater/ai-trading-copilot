@@ -62,7 +62,8 @@ function deriveConfig(ir: StrategyIR, overrides: Partial<BacktestConfig> = {}): 
     longEntryRsi: overrides.longEntryRsi ?? numberFromRule(ir, 'entry', 30),
     longExitRsi: overrides.longExitRsi ?? numberFromRule(ir, 'exit', 70),
     positionFraction: overrides.positionFraction ?? Math.min(1, Math.max(0.01, (ir.risk.maxPositionPct ?? 100) / 100)),
-    stopLossPct: overrides.stopLossPct ?? ir.risk.stopLossPct,
+    // A >=100% long stop is a disabled stop (e.g. freqtrade `stoploss = -1`), not an invalid config.
+    stopLossPct: overrides.stopLossPct ?? (ir.risk.stopLossPct !== undefined && ir.risk.stopLossPct < 100 ? ir.risk.stopLossPct : undefined),
     takeProfitPct: overrides.takeProfitPct ?? ir.risk.takeProfitPct,
     executionTiming: 'signal-close-next-open',
     intrabarCollision: 'stop-first',
