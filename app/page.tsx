@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   Bot,
@@ -85,6 +85,7 @@ type BacktestResponse = {
 type MarketSnapshot = {
   source: string;
   symbol: string;
+  interval: string;
   timestamp: string;
   freshnessMs: number;
   lastPrice: number;
@@ -94,6 +95,10 @@ type MarketSnapshot = {
   quoteVolume24h: number;
   recentVolatilityPct: number;
 };
+
+type MarketOutcome =
+  | { snapshot: MarketSnapshot }
+  | { error: { key: string; message: string } };
 
 const severityClass: Record<string, string> = {
   critical: 'border-red-400/30 bg-red-400/10 text-red-100',
@@ -126,14 +131,26 @@ export default function Page() {
   const [interval, setInterval] = useState('1h');
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
+  const [marketSymbol, setMarketSymbol] = useState('BTCUSDT');
   const [market, setMarket] = useState<MarketSnapshot | null>(null);
+  const [marketError, setMarketError] = useState<{ key: string; message: string } | null>(null);
   const [status, setStatus] = useState<'idle' | 'analyzing' | 'backtesting' | 'market'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  const tvSymbol = useMemo(
-    () => `BINANCE:${symbol.toUpperCase().replace(/[\/_-]/g, '')}`,
-    [symbol],
-  );
+  // Market data and the chart follow the symbol input after typing settles, and
+  // only show results for the symbol/interval currently selected.
+  const marketKey = `${marketSymbol}:${interval}`;
+  const marketSymbolValid = /^[A-Z0-9]{5,20}$/.test(marketSymbol);
+  const currentMarket = market && `${market.symbol}:${market.interval}` === marketKey ? market : null;
+  const currentMarketError = !marketSymbolValid
+    ? 'Enter a Binance spot symbol such as BTCUSDT.'
+    : marketError?.key === marketKey ? marketError.message : null;
+  const tvSymbol = `BINANCE:${marketSymbol}`;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMarketSymbol(symbol.toUpperCase().replace(/[\/_-]/g, '')), 400);
+    return () => window.clearTimeout(timer);
+  }, [symbol]);
 
   const request = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
@@ -142,40 +159,47 @@ export default function Page() {
     return data as T;
   }, []);
 
+  const fetchMarket = useCallback(async (target: string, targetInterval: string): Promise<MarketOutcome> => {
+    try {
+      const snapshot = await request<MarketSnapshot>(
+        `/api/market-snapshot?symbol=${encodeURIComponent(target)}&interval=${encodeURIComponent(targetInterval)}`,
+      );
+      return { snapshot };
+    } catch (cause) {
+      return {
+        error: {
+          key: `${target}:${targetInterval}`,
+          message: cause instanceof Error ? cause.message : 'Market request failed.',
+        },
+      };
+    }
+  }, [request]);
+
+  const applyMarket = useCallback((outcome: MarketOutcome) => {
+    if ('snapshot' in outcome) {
+      setMarket(outcome.snapshot);
+      setMarketError(null);
+    } else {
+      setMarketError(outcome.error);
+    }
+  }, []);
+
   const refreshMarket = useCallback(async () => {
     setStatus('market');
-    setError(null);
-    try {
-      const data = await request<MarketSnapshot>(
-        `/api/market-snapshot?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`,
-      );
-      setMarket(data);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Market request failed.');
-    } finally {
-      setStatus('idle');
-    }
-  }, [interval, request, symbol]);
+    applyMarket(await fetchMarket(marketSymbol, interval));
+    setStatus('idle');
+  }, [applyMarket, fetchMarket, interval, marketSymbol]);
 
   useEffect(() => {
+    if (!marketSymbolValid) return;
     let cancelled = false;
-
-    async function loadInitialMarket() {
-      try {
-        const data = await request<MarketSnapshot>(
-          `/api/market-snapshot?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`,
-        );
-        if (!cancelled) setMarket(data);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'Market request failed.');
-      }
-    }
-
-    void loadInitialMarket();
+    void fetchMarket(marketSymbol, interval).then((outcome) => {
+      if (!cancelled) applyMarket(outcome);
+    });
     return () => {
       cancelled = true;
     };
-  }, [interval, request, symbol]);
+  }, [applyMarket, fetchMarket, interval, marketSymbol, marketSymbolValid]);
 
   async function analyze() {
     setStatus('analyzing');
@@ -300,22 +324,27 @@ export default function Page() {
               <div className="flex items-center gap-2">
                 <Activity size={17} className="text-blue-400" />
                 <h2 className="font-semibold">Live market context</h2>
+                {currentMarket && (
+                  <span className="text-xs text-slate-500">{currentMarket.symbol} · {currentMarket.interval}</span>
+                )}
               </div>
               <button
                 onClick={refreshMarket}
-                disabled={status !== 'idle'}
+                disabled={status !== 'idle' || !marketSymbolValid}
                 className="rounded-lg border border-white/10 p-2 text-slate-400 hover:text-white disabled:opacity-40"
                 aria-label="Refresh market data"
               >
                 <RefreshCw size={14} className={status === 'market' ? 'animate-spin' : ''} />
               </button>
             </div>
-            {market ? (
+            {currentMarketError ? (
+              <p className="text-sm text-red-200" role="alert">{currentMarketError}</p>
+            ) : currentMarket ? (
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <Metric label="Last" value={formatMoney(market.lastPrice)} />
-                <Metric label="24h" value={`${market.priceChangePct24h.toFixed(2)}%`} />
-                <Metric label="Recent vol" value={`${market.recentVolatilityPct.toFixed(3)}%`} />
-                <Metric label="Freshness" value={`${Math.round(market.freshnessMs / 1000)}s`} />
+                <Metric label="Last" value={formatMoney(currentMarket.lastPrice)} />
+                <Metric label="24h" value={`${currentMarket.priceChangePct24h.toFixed(2)}%`} />
+                <Metric label="Recent vol" value={`${currentMarket.recentVolatilityPct.toFixed(3)}%`} />
+                <Metric label="Freshness" value={`${Math.round(currentMarket.freshnessMs / 1000)}s`} />
               </div>
             ) : (
               <p className="text-sm text-slate-500">Public Binance snapshot is loading.</p>
